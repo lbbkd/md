@@ -133,19 +133,21 @@ stimulusArray = npStimulusArray.linspace(float(startFreq),float(stopFreq),int(nu
 print (stimulusArray)
 ff_SA_Trace_Data_Array = []
 reltime = []
+myFieldFox.write("SENS:SWE:COUN " + str(num_sweeps))
+# Assert a single trigger and wait for trigger complete via *OPC? output of a 1
+myFieldFox.write("INIT:IMM;*OPC?")
+#print ("Single Trigger complete, *OPC? returned : " + myFieldFox.read() )
+# Query the FieldFox response data
 for j in range(0,num_sweeps):
-   # Assert a single trigger and wait for trigger complete via *OPC? output of a 1
-   myFieldFox.write("INIT:IMM;*OPC?")
-   #print ("Single Trigger complete, *OPC? returned : " + myFieldFox.read() )
-   # Query the FieldFox response data
-   myFieldFox.write("TRACE:DATA?")
+   myFieldFox.write("CALC:DATA:NSW? SDAT," + str(num_sweeps - j))
    ff_SA_Trace_Data = myFieldFox.read()
    ff_SA_Trace_Data_Array.append(list(map(float,ff_SA_Trace_Data.split(","))))
    reltime.append(time.time())
 print (ff_SA_Trace_Data) # This is one long comma separated string list of values.
-startime = reltime[0]
+time_total = myFieldFox.read("SENS:SWE:TIME?")
+dt = time_total / num_sweeps
 for k in range(0,num_sweeps):
-   reltime[k] = reltime[k] - startime
+   reltime[k] = k * dt
 # Use split to turn long string to an array of values,map and float to convert each value
 # from string to float, and list turn the array of values into a list.
 
@@ -182,7 +184,6 @@ if debug:
 # Call the ErrCheck function and ensure no errors occurred between start of program
 # (first Errcheck() call and end of program (last Errcheck() call. 
 print (Errcheck())
-print(startime)
 # On exit clean a few items up.
 myFieldFox.clear()
 myFieldFox.close()
