@@ -37,11 +37,12 @@
 # stimulus array, 
 # and plots the stimulus - response data as an X-Y trace. 
 # 
-# Import the visa libraries
+# Import the visa, csv, and math libraries 
 import pyvisa as visa
 import os as os
 import csv
 import time
+import math as m
 # The numpy is imported as it is helpful for a linear ramp creation for the stimulus 
 # array
 import numpy as npStimulusArray
@@ -61,7 +62,7 @@ numPoints = 401
 startFreq = 9950000000
 stopFreq = 10050000000
 # Number of sweeps to perform
-num_sweeps = 10  # Adjust as needed
+num_sweeps = 50  # Adjust as needed
 # Open a VISA resource manager pointing to the installation folder for the Keysight 
 # Visa libraries. 
 rm = visa.ResourceManager() 
@@ -70,7 +71,7 @@ rm = visa.ResourceManager()
 # provided via
 # Keysight Connection Expert
 # ALTER LINE BELOW - Updated VISA resource string to match your specific configuration
-myFieldFox = rm.open_resource("TCPIP0::169.254.178.124::inst0::INSTR") 
+myFieldFox = rm.open_resource("TCPIP0::169.254.15.18::inst0::INSTR") 
 #Set Timeout - 10 seconds
 myFieldFox.timeout = 10000
 # Clear the event status registers and empty the error queue
@@ -131,28 +132,46 @@ myFieldFox.read()
 # array as a SCPI query. 
 stimulusArray = npStimulusArray.linspace(float(startFreq),float(stopFreq),int(numPoints)).tolist()
 print (stimulusArray)
+# Initialize all lists used for grabbing data
 ff_SA_Trace_Data_Array = []
 reltime = []
+formatted = []
+# Set the number of sweeps performed in a single trigger to the number of sweeps specfied
+# by 'num_sweeps'
 myFieldFox.write("SENS:SWE:COUN " + str(num_sweeps))
 # Assert a single trigger and wait for trigger complete via *OPC? output of a 1
 myFieldFox.write("INIT:IMM;*OPC?")
-#print ("Single Trigger complete, *OPC? returned : " + myFieldFox.read() )
-# Query the FieldFox response data
-for j in range(0,num_sweeps):
+print ("Single Trigger complete, *OPC? returned : " + myFieldFox.read())
+# query the amount of sweeps performed by VNA and then read amount to ensure congruity
+myFieldFox.write("CALC:DATA:NSW:COUN?")
+count = myFieldFox.read()
+# Query the amount of time the trigger took to perform ******NEEDS MORE VERIFICATION*******
+myFieldFox.write("SENS:SWE:TIME?")
+time_total = float(myFieldFox.read())
+print(count)
+# Query the FieldFox response data for each sweep specified by 'num_sweeps'
+for j in range(num_sweeps):
    myFieldFox.write("CALC:DATA:NSW? SDAT," + str(num_sweeps - j))
    ff_SA_Trace_Data = myFieldFox.read()
    ff_SA_Trace_Data_Array.append(list(map(float,ff_SA_Trace_Data.split(","))))
-   reltime.append(time.time())
-print (ff_SA_Trace_Data) # This is one long comma separated string list of values.
-time_total = myFieldFox.read("SENS:SWE:TIME?")
+print (ff_SA_Trace_Data_Array[1]) # This is one long comma separated string list of 
+# values. Each point is represented by a complex number with a real and imaginary part.
+# Calculate change in time between each sweep
 dt = time_total / num_sweeps
-for k in range(0,num_sweeps):
-   reltime[k] = k * dt
+reltime = []
+for k in range(num_sweeps):
+# Make a list of time of each sweep performed   
+   reltime.append(k * dt)
+   for i in range(0,len(ff_SA_Trace_Data_Array[k]),2):
+# Change data from complex number to a dB reading
+      formatted.append(20 * m.log10(m.sqrt(ff_SA_Trace_Data_Array[k][i]**2 + ff_SA_Trace_Data_Array[k][i+1]**2)))
+   ff_SA_Trace_Data_Array[k] = formatted
+   formatted = []
 # Use split to turn long string to an array of values,map and float to convert each value
 # from string to float, and list turn the array of values into a list.
 
 # Now plot the x - y data
-maxResponseVal= max(ff_SA_Trace_Data_Array)
+maxResponseVal = max(ff_SA_Trace_Data_Array)
 minResponseVal = min(ff_SA_Trace_Data_Array)
 #if debug:
 #print ("Max value = " + maxResponseVal + " Min Value = " + minResponseVal)
@@ -160,7 +179,7 @@ minResponseVal = min(ff_SA_Trace_Data_Array)
 stimulusResponsePlot.title ("Keysight FieldFox Spectrum Trace Data via Python - PyVisa - SCPI")
 stimulusResponsePlot.xlabel("Frequency")
 stimulusResponsePlot.ylabel("Amplitude (dBm)")
-stimulusResponsePlot.plot(stimulusArray,ff_SA_Trace_Data_Array[1])
+stimulusResponsePlot.plot(stimulusArray,ff_SA_Trace_Data_Array[num_sweeps-1])
 stimulusResponsePlot.autoscale(True, True, True) 
 stimulusResponsePlot.show()
 filename = 'multi_set_spectrum_data.csv'
@@ -172,7 +191,9 @@ with open(filename, 'w', newline='') as csvfile:
    for set_number in range(0, num_sweeps):
       header_row.append(f'Amplitude (dB) - Set {set_number}')
    writer.writerow(header_row)
+# Write frequency of each point
    writer.writerow(stimulusArray)
+# Write dB reading of each point for each sweep with the sweeps time of performance.
    for i in range(0,num_sweeps):
       ff_SA_Trace_Data_Array[i].insert(0,reltime[i])
       writer.writerow(ff_SA_Trace_Data_Array[i])
